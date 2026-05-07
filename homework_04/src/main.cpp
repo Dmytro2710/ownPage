@@ -1,7 +1,9 @@
 #include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <cmath>
 
+#define _USE_MATH_DEFINES
 #define MAX_STEP_TICKS 512
 
 const int16_t ticks_per_revolution = 1024;
@@ -66,6 +68,24 @@ int16_t read_odometry_file(
     return 0;
 }
 
+void calculate_position(uint16_t step, float& x, float& y, float& theta) {
+    if (step == 0) return;
+    uint16_t d_fl = fl_ticks[step] - fl_ticks[step - 1];
+    uint16_t d_fr = fr_ticks[step] - fr_ticks[step - 1];
+    uint16_t d_bl = bl_ticks[step] - bl_ticks[step - 1];
+    uint16_t d_br = br_ticks[step] - br_ticks[step - 1];
+    uint16_t d_left  = (d_fl + d_bl) / 2;
+    uint16_t d_right = (d_fr + d_br) / 2; //not a float cause non integer tick count is nonsence
+    const float distance_per_tick = 2 * (float)M_PI * wheel_radius_m / ticks_per_revolution;
+    float dL = d_left  * distance_per_tick;
+    float dR = d_right * distance_per_tick;
+    float d  = (dL + dR) / 2;
+    float dtheta = (dR - dL) / wheelbase_m;
+    x += d * cos(theta + dtheta / 2);
+    y += d * sin(theta + dtheta / 2);
+    theta += dtheta;
+}
+
 
 int main(int argc, char** argv) {
     // The program expects exactly one argument: a path to telemetry samples.
@@ -76,6 +96,13 @@ int main(int argc, char** argv) {
     const char* input_path = argv[1];
     if (read_odometry_file(input_path, fl_ticks, fr_ticks, bl_ticks, br_ticks, timestamp_ms, num_samples) != 0) {
         return 1; // Error reading the file
+    }
+    float x = 0.0f;
+    float y = 0.0f;
+    float theta = 0.0f;
+    for (uint16_t tick = 1; tick < num_samples; ++tick) {
+        calculate_position(tick, x, y, theta);
+        std::cout<<timestamp_ms[tick]<<" "<<x<<" "<<y<<" "<<theta<<std::endl;
     }
 
     // TODO: implement wheel odometry for a 4-wheel differential-drive UGV.
