@@ -4,6 +4,14 @@
 const int MAX_TELEMETRY_FRAMES = 128;
 
 // One telemetry sample from the input log.
+
+enum error_type {
+    EMPTY_FILE,
+    WRONG_FORMAT,
+    WRONG_VALUE,
+    ZERO_DELTA
+};
+
 struct Frame {
     long timestamp_ms;
     int seq;
@@ -33,3 +41,5 @@ Summary summarize(const Frame frames[], int frame_count);
 
 // Prints summary in the stable homework output format.
 void print_summary(const Summary& summary);
+
+void print_error(const error_type& error, int line = -1);
