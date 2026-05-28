@@ -38,45 +38,56 @@ int split_line(char line[], char* fields[], int max_fields) {
     return count;
 }
 
-long parse_long(const char* text) {
+long parse_long(const char* text, const int lineNum, bool& error) {
     char* end = nullptr;
     const long value = std::strtol(text, &end, 10);
 
+
     if (end == text) {
-        std::abort();
+        print_error(WRONG_VALUE, lineNum);
+        error = true;
+        return -1;
     }
 
     return value;
 }
 
-int parse_int(const char* text) {
-    return static_cast<int>(parse_long(text));
+int parse_int(const char* text, const int lineNum, bool& error) {
+    return static_cast<int>(parse_long(text, lineNum, error)); 
 }
 
-double parse_double(const char* text) {
+double parse_double(const char* text, const int lineNum, bool& error) {
     char* end = nullptr;
     const double value = std::strtod(text, &end);
 
     if (end == text) {
-        std::abort();
+        print_error(WRONG_VALUE, lineNum);
+        error = true;
+        return -1.0;
     }
 
     return value;
 }
 
-Frame parse_frame(char line[]) {
+Frame parse_frame(char line[], const int lineNum, bool& error) {
     char* fields[EXPECTED_FIELD_COUNT] = {};
     const int field_count = split_line(line, fields, EXPECTED_FIELD_COUNT);
-    (void)field_count;
-
+    //(void)field_count;
     Frame frame{};
-    frame.timestamp_ms = parse_long(fields[0]);
-    frame.seq = parse_int(fields[1]);
-    frame.voltage_v = parse_double(fields[2]);
-    frame.current_a = parse_double(fields[3]);
-    frame.temperature_c = parse_double(fields[4]);
-    frame.gps_fix = parse_int(fields[5]);
-    frame.satellites = parse_int(fields[6]);
+    if (field_count < EXPECTED_FIELD_COUNT) {
+        print_error(WRONG_FORMAT, lineNum);
+        error = true;
+        frame = {-1, -1, -1, -1, -1, -1, -1, };
+        return frame;
+    }
+
+    frame.timestamp_ms = parse_long(fields[0], lineNum, error);
+    frame.seq = parse_int(fields[1], lineNum, error);
+    frame.voltage_v = parse_double(fields[2], lineNum, error);
+    frame.current_a = parse_double(fields[3], lineNum, error);
+    frame.temperature_c = parse_double(fields[4], lineNum, error);
+    frame.gps_fix = parse_int(fields[5], lineNum, error);
+    frame.satellites = parse_int(fields[6], lineNum, error);
     return frame;
 }
 
@@ -95,14 +106,20 @@ int read_frames(const char* path, Frame frames[], int max_frames) {
 
     int frame_count = 0;
     char line[MAX_LINE_LENGTH];
-
     while (input.getline(line, MAX_LINE_LENGTH)) {
         if (line[0] == '\0') {
             continue;
         }
 
         if (frame_count < max_frames) {
-            frames[frame_count] = parse_frame(line);
+            bool error = false;
+            frames[frame_count] = parse_frame(line, frame_count + 1, error);
+            if (error) return -1;
+            if (frame_count != 0 && 
+                frames[frame_count].timestamp_ms <= frames[frame_count - 1].timestamp_ms) {
+                print_error(ZERO_DELTA, frame_count + 1);
+                return -1;
+            }
             ++frame_count;
         }
     }
@@ -150,4 +167,23 @@ void print_summary(const Summary& summary) {
     std::cout << "temperature_avg " << summary.temperature_avg << '\n';
     std::cout << "low_voltage_frames " << summary.low_voltage_frames << '\n';
     std::cout << "frame_rate_hz " << summary.frame_rate_hz << '\n';
+}
+
+void print_error(const error_type& error, int bad_line) {
+    switch (error) {
+        case EMPTY_FILE:
+            std::cerr << "error: empty telemetry file\n";
+            break;
+        case WRONG_FORMAT:
+            std::cerr << "error: invalid frame at line " << bad_line <<". expected 7 fields\n";
+            break;
+        case WRONG_VALUE:
+            std::cerr << "error: invalid frame at line " << bad_line <<". Wrong value\n";
+            break;
+        case ZERO_DELTA:
+            std::cerr << "error: invalid frame at line " << bad_line <<". Zero timestap\n";
+            break;
+        default:
+            std::cerr <<"Unknown error"<<'\n';
+    }    
 }
