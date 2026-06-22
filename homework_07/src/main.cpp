@@ -22,6 +22,10 @@
 #include <cstring>
 #include <cmath>
 #include <cstdint>
+#include <vector>
+#include <string>
+#include <array>
+#include <map>
 
 using json = nlohmann::json;
 
@@ -63,7 +67,7 @@ Coord normalize(Coord c) {
 }
 
 struct AmmoParams {
-    char  name[32];
+    std::string name;
     float mass;
     float drag;
     float lift;
@@ -75,7 +79,7 @@ struct DroneConfig {
     float initialDir;
     float attackSpeed;
     float accelPath;
-    char  ammoName[32];
+    std::string ammoName;
     float arrayTimeStep;
     float simTimeStep;
     float hitRadius;
@@ -133,7 +137,7 @@ class IConfigLoader {
 };
 
 class JsonTargetProvider : public ITargetProvider {
-    Coord** targets = nullptr;
+    std::vector<std::vector<Coord>> targets;
     int     targetCount;
     int     timeSteps;
     float   arrayTimeStep;
@@ -147,7 +151,7 @@ public:
         std::cout << "Opening: " << filename << " -> " 
               << (f ? "OK" : "FAILED") << std::endl;
         if (!f) {
-            targets   = nullptr;
+            targets   = std::vector<std::vector<Coord>>();
             targetCount = 0;
             timeSteps = 0;
             loadingFail = true;
@@ -157,14 +161,15 @@ public:
         f >> j;
         targetCount = j["targetCount"];
         timeSteps   = j["timeSteps"];
-        targets = new Coord*[targetCount];
-        for (int i = 0; i < targetCount; ++i) {
-            targets[i] = new Coord[timeSteps];
-
-            for (int k = 0; k < timeSteps; ++k) {
-                targets[i][k].x = j["targets"][i]["positions"][k]["x"];
-                targets[i][k].y = j["targets"][i]["positions"][k]["y"];
+        targets.clear();
+        targets.reserve(targetCount);
+        for (const auto& target : j["targets"]) {
+            std::vector<Coord> row;
+            row.reserve(timeSteps);
+            for (const auto& pos : target["positions"]) {
+                row.push_back(Coord{pos["x"], pos["y"]});
             }
+            targets.push_back(row);
         }
         loadingFail = false;
     };
@@ -187,13 +192,7 @@ public:
     void   setCurrentStep(int step) override {currentStep = step;};
     //bool   getLoadingStatus();
     ~JsonTargetProvider() {
-        if (targets == nullptr) return;
-        for (int i = 0; i < targetCount; ++i) {
-            delete[] targets[i];
-            targets[i] = nullptr;
-        }
-        delete[] targets;
-        targets = nullptr;
+        targets.clear();
     };
 };
 
@@ -342,14 +341,24 @@ public:
         f1 >> j;
 
         ammoCount = static_cast<int>(j.size());
-        AmmoParams* ammoList = new AmmoParams[ammoCount];
-        for (int i = 0; i < ammoCount; ++i) {
-            std::string name = j[i]["name"].get<std::string>();
-            std::strncpy(ammoList[i].name, name.c_str(), 31);
-            ammoList[i].name[31] = '\0';
-            ammoList[i].mass = j[i]["mass"];
-            ammoList[i].drag = j[i]["drag"];
-            ammoList[i].lift = j[i]["lift"];
+        /*std::vector<AmmoParams> ammoList;
+        ammoList.reserve(ammoCount);
+        for (const auto& ammo : j) {
+            ammoList.emplace_back();
+            ammoList.back().name = ammo["name"].get<std::string>();
+            //std::strncpy(ammoList[i].name, name.c_str(), 31);
+            ammoList.back().mass = ammo["mass"];
+            ammoList.back().drag = ammo["drag"];
+            ammoList.back().lift = ammo["lift"];
+        }*/
+        std::map<std::string, AmmoParams> ammoMap;
+        for (const auto& ammo : j) {
+            AmmoParams params;
+            params.name = ammo["name"].get<std::string>();
+            params.mass = ammo["mass"];
+            params.drag = ammo["drag"];
+            params.lift = ammo["lift"];
+            ammoMap[params.name] = params;
         }
         json jDrone;
         f2 >> jDrone;
@@ -366,16 +375,20 @@ public:
         currentDrone.hitRadius     = jDrone["simulation"]["hitRadius"];
         currentDrone.arrayTimeStep = jDrone["targetArrayTimeStep"];
 
-        std::string ammoStr = jDrone["ammo"].get<std::string>();
-        std::strncpy(currentDrone.ammoName, ammoStr.c_str(), 31);
-        currentDrone.ammoName[31] = '\0';
-         for (int i = 0; i < ammoCount; ++i)
-            if (strcmp(currentDrone.ammoName, ammoList[i].name) == 0) {
-                currentAmo = ammoList[i];
-                delete[] ammoList;
+        currentDrone.ammoName = jDrone["ammo"].get<std::string>();
+        //std::strncpy(currentDrone.ammoName, ammoStr.c_str(), 31);
+        //currentDrone.ammoName[31] = '\0';
+        auto it = ammoMap.find(currentDrone.ammoName);
+        if (it != ammoMap.end()) {
+            currentAmo = it->second;
+            return true;
+        }
+
+        /*for (const auto& ammo : ammoList)
+            if (currentDrone.ammoName == ammo.name) {
+                currentAmo = ammo;
                 return true;
-            }
-        delete[] ammoList;
+            }*/
         return false;
     };
     AmmoParams  getAmoParams() override {
